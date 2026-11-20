@@ -1,0 +1,386 @@
+diff --git a/include/openswmm/plugin_sdk/SimulationSnapshot.hpp b/include/openswmm/plugin_sdk/SimulationSnapshot.hpp
+index 6e3bba3..6f388f4 100644
+--- a/include/openswmm/plugin_sdk/SimulationSnapshot.hpp
++++ b/include/openswmm/plugin_sdk/SimulationSnapshot.hpp
+@@ -1,3 +1,5 @@
++// Modified 2026-11-19 by Robert Dickinson (swmm6-qaqc): solver QA/QC output
++// variables. Every changed or added line is tagged  QAQC:
+ // SPDX-License-Identifier: Apache-2.0
+ //
+ // Copyright 2026 Caleb Buahin
+@@ -214,6 +216,15 @@ struct SimulationSnapshot {
+      */
+     std::vector<double> subcatch_quality;
+ 
++    // QAQC: solver QA/QC variables in display units (empty when off).
++    // Layout: [object_index * qaqc_*_vars + variable_index].
++    int qaqc_link_vars = 0;          // QAQC:
++    int qaqc_node_vars = 0;          // QAQC:
++    int qaqc_sys_vars = 0;           // QAQC:
++    std::vector<float> qaqc_link;    // QAQC:
++    std::vector<float> qaqc_node;    // QAQC:
++    std::vector<float> qaqc_sys;     // QAQC:
++
+     // -----------------------------------------------------------------------
+     // String tables (for plugins that need to label their output)
+     // -----------------------------------------------------------------------
+diff --git a/src/cli/main.cpp b/src/cli/main.cpp
+index bf7581b..447dd57 100644
+--- a/src/cli/main.cpp
++++ b/src/cli/main.cpp
+@@ -1,3 +1,5 @@
++// Modified 2026-11-19 by Robert Dickinson (swmm6-qaqc): solver QA/QC output
++// variables. Every changed or added line is tagged  QAQC:
+ /**
+  * @file      main.cpp
+  * @brief     Command-line interface for OpenSWMM Engine 6.0.
+@@ -26,6 +28,8 @@
+ #endif
+ #include <filesystem>
+ #include "version.h"
++#include "../engine/core/Qaqc.hpp"      // QAQC:
++#include "../engine/core/QaqcStore.hpp" // QAQC:
+ 
+ /**
+  * @brief Print command syntax, switches and engine/output descriptions to stdout.
+@@ -73,6 +77,28 @@ static void print_version() {
+  */
+ int main(int argc, char* argv[]) {
+ 
++    // QAQC: optional flags, removed from argv before normal parsing
++    //   --stock           write stock output (no QA/QC variables)
++    //   --catalog <file>  write the QA/QC variable catalog (JSON) and exit
++    {                                                             // QAQC:
++        int n = 1;                                                // QAQC:
++        for (int i = 1; i < argc; ++i) {                          // QAQC:
++            if (std::strcmp(argv[i], "--stock") == 0) {           // QAQC:
++                openswmm::qaqc::setDefaultEnabled(false);         // QAQC:
++            } else if (std::strcmp(argv[i], "--catalog") == 0 && i + 1 < argc) { // QAQC:
++                std::FILE* cf = std::fopen(argv[i + 1], "wt");    // QAQC:
++                if (cf == nullptr)                                // QAQC:
++                    return 1;                                     // QAQC:
++                openswmm::qaqc::writeCatalog(cf);                 // QAQC:
++                std::fclose(cf);                                  // QAQC:
++                return 0;                                         // QAQC:
++            } else {                                              // QAQC:
++                argv[n++] = argv[i];                              // QAQC:
++            }                                                     // QAQC:
++        }                                                         // QAQC:
++        argc = n;                                                 // QAQC:
++    }                                                             // QAQC:
++
+     if (argc < 2) {
+         std::printf("\nError: not enough arguments. Use --help for usage.\n\n");
+         return 1;
+diff --git a/src/engine/core/SWMMEngine.cpp b/src/engine/core/SWMMEngine.cpp
+index 111f3b1..7d8b37d 100644
+--- a/src/engine/core/SWMMEngine.cpp
++++ b/src/engine/core/SWMMEngine.cpp
+@@ -1,3 +1,5 @@
++// Modified 2026-11-19 by Robert Dickinson (swmm6-qaqc): solver QA/QC output
++// variables. Every changed or added line is tagged  QAQC:
+ // SPDX-License-Identifier: Apache-2.0
+ //
+ // Copyright 2026 Caleb Buahin
+@@ -27,6 +29,7 @@
+  */
+ 
+ #include "SWMMEngine.hpp"
++#include "Qaqc.hpp" // QAQC:
+ #include "../quality/PeerPassiveStorageExchange.hpp"
+ #include "../transport/InitialQualitySeeds.hpp"
+ #include "../hydrology/surface/NativeSnow.hpp"
+@@ -8415,6 +8418,7 @@ void SWMMEngine::postOutputSnapshot(double /*dt_step*/) {
+             snap.subcatch_ids = &ctx_.subcatch_names.names();
+             snap.gage_ids = &ctx_.gage_names.names();
+             snap.pollut_names = &ctx_.reported_species_names;
++            qaqc::fillSnapshot(ctx_, snap); // QAQC:
+ 
+             io_thread_.post(std::move(snap));
+         }
+diff --git a/src/engine/core/SimulationContext.hpp b/src/engine/core/SimulationContext.hpp
+index 04b6622..aac33e9 100644
+--- a/src/engine/core/SimulationContext.hpp
++++ b/src/engine/core/SimulationContext.hpp
+@@ -1,3 +1,5 @@
++// Modified 2026-11-19 by Robert Dickinson (swmm6-qaqc): solver QA/QC output
++// variables. Every changed or added line is tagged  QAQC:
+ // SPDX-License-Identifier: Apache-2.0
+ //
+ // Copyright 2026 Caleb Buahin
+@@ -110,6 +112,7 @@
+ #include "../data/ForcingData.hpp"
+ #include "../hydrology/Climate.hpp"
+ #include "../hydrology/FrozenGround.hpp"
++#include "QaqcStore.hpp" // QAQC:
+ 
+ #include <algorithm>
+ #include <array>
+@@ -1882,6 +1885,11 @@ struct SimulationContext {
+     // Virtual-junction diagnostics (refactored engine only)
+     // =========================================================================
+ 
++    /// QAQC: capture store for the QA/QC output variables. Written by
++    /// DWSolver, read when a report snapshot is built; never read by the
++    /// solver itself, hence mutable.
++    mutable qaqc::Store qaqc; // QAQC:
++
+     /**
+      * @brief Per-virtual-junction momentum-residual accumulators.
+      *
+diff --git a/src/engine/hydraulics/DynamicWave.cpp b/src/engine/hydraulics/DynamicWave.cpp
+index 90c855b..108c2d0 100644
+--- a/src/engine/hydraulics/DynamicWave.cpp
++++ b/src/engine/hydraulics/DynamicWave.cpp
+@@ -1,3 +1,5 @@
++// Modified 2026-11-19 by Robert Dickinson (swmm6-qaqc): solver QA/QC output
++// variables. Every changed or added line is tagged  QAQC:
+ #include "../hydrology/LidNode.hpp"
+ // SPDX-License-Identifier: Apache-2.0
+ //
+@@ -1329,6 +1331,12 @@ int DWSolver::execute(SimulationContext& ctx, double dt,
+     int steps = 0;
+     bool converged = false;
+ 
++    // QAQC: size the capture store and open a new capture serial
++    ctx.qaqc.ensure(static_cast<std::size_t>(n_links_),           // QAQC:
++                    static_cast<std::size_t>(n_nodes_));          // QAQC:
++    ctx.qaqc.serial += 1.0;                                       // QAQC:
++    ctx.qaqc.route_step = dt;                                     // QAQC:
++
+     // Per-timestep constant
+     dt_gravity_ = dt * GRAVITY;
+ 
+@@ -1555,6 +1563,41 @@ int DWSolver::execute(SimulationContext& ctx, double dt,
+ 
+     steps = steps_final;
+     converged = converged_final;
++    // QAQC: step totals, plus the geometry of the conduits whose momentum
++    // kernel did not run in this step (dry or closed)
++    if (ctx.qaqc.enabled) {                                       // QAQC:
++        ctx.qaqc.trials = steps;                                  // QAQC:
++        ctx.qaqc.non_converged = 0;                               // QAQC:
++        for (int qi = 0; qi < n_nodes_; ++qi) {                   // QAQC:
++            const auto uq = static_cast<std::size_t>(qi);         // QAQC:
++            double* qn = ctx.qaqc.nodeSlot(uq);                   // QAQC:
++            if (qn == nullptr || ctx.nodes.type[uq] == NodeType::OUTFALL) // QAQC:
++                continue;                                         // QAQC:
++            qn[qaqc::QN_CONVERGED] = xnode_.converged[uq] ? 1.0 : 0.0;   // QAQC:
++            qn[qaqc::QN_SUMDQDH] = xnode_.sumdqdh[uq];            // QAQC:
++            if (!xnode_.converged[uq])                            // QAQC:
++                ++ctx.qaqc.non_converged;                         // QAQC:
++        }                                                         // QAQC:
++        for (int qj = 0; qj < n_links_; ++qj) {                   // QAQC:
++            const auto uq = static_cast<std::size_t>(qj);         // QAQC:
++            double* qc = ctx.qaqc.linkSlot(uq);                   // QAQC:
++            if (qc == nullptr || uq >= area1_.size())             // QAQC:
++                continue;                                         // QAQC:
++            if (qc[qaqc::QC_SERIAL] == ctx.qaqc.serial)           // QAQC: kernel ran;
++                continue;                                         // QAQC: it captured these
++            qc[qaqc::QC_Y1] = depth1_[uq];                        // QAQC:
++            qc[qaqc::QC_Y2] = depth2_[uq];                        // QAQC:
++            qc[qaqc::QC_H1] = h1_[uq];                            // QAQC:
++            qc[qaqc::QC_H2] = h2_[uq];                            // QAQC:
++            qc[qaqc::QC_A1] = area1_[uq];                         // QAQC:
++            qc[qaqc::QC_A2] = area2_[uq];                         // QAQC:
++            qc[qaqc::QC_W1] = width1_[uq];                        // QAQC:
++            qc[qaqc::QC_W2] = width2_[uq];                        // QAQC:
++            qc[qaqc::QC_SA1] = surf_area1_[uq];                   // QAQC:
++            qc[qaqc::QC_SA2] = surf_area2_[uq];                   // QAQC:
++            qc[qaqc::QC_FASNH] = fasnh_[uq];                      // QAQC:
++        }                                                         // QAQC:
++    }                                                             // QAQC:
+     for (int i = 0; i < n_nodes_; ++i)
+         if (ctx.nodes.storage_area[i] > 0.0) {
+             double pipe_delta = 0.0;
+@@ -3307,6 +3350,40 @@ void DWSolver::traceLinkTerms(const SimulationContext& ctx, std::size_t uj, doub
+                               double dq2, double dq3, double dq4, double dq5, double dq6,
+                               double qOld, double q, double aMidConv) {
+     const auto& links = ctx.links;
++    if (double* qc = ctx.qaqc.linkSlot(uj)) {                     // QAQC:
++        qc[qaqc::QC_Y1] = depth1_[uj];                            // QAQC:
++        qc[qaqc::QC_Y2] = depth2_[uj];                            // QAQC:
++        qc[qaqc::QC_H1] = h1_[uj];                                // QAQC:
++        qc[qaqc::QC_H2] = h2_[uj];                                // QAQC:
++        qc[qaqc::QC_A1] = area1_[uj];                             // QAQC:
++        qc[qaqc::QC_A2] = area2_[uj];                             // QAQC:
++        qc[qaqc::QC_W1] = width1_[uj];                            // QAQC:
++        qc[qaqc::QC_W2] = width2_[uj];                            // QAQC:
++        qc[qaqc::QC_SA1] = surf_area1_[uj];                       // QAQC:
++        qc[qaqc::QC_SA2] = surf_area2_[uj];                       // QAQC:
++        qc[qaqc::QC_FASNH] = fasnh_[uj];                          // QAQC:
++        qc[qaqc::QC_AMID] = area_mid_[uj];                        // QAQC:
++        qc[qaqc::QC_AWTD] = aWtd;                                 // QAQC:
++        qc[qaqc::QC_R1] = hrad1_[uj];                             // QAQC:
++        qc[qaqc::QC_RMID] = hrad_mid_[uj];                        // QAQC:
++        qc[qaqc::QC_RWTD] = rWtd;                                 // QAQC:
++        qc[qaqc::QC_V] = v;                                       // QAQC:
++        qc[qaqc::QC_RHO] = rho;                                   // QAQC:
++        qc[qaqc::QC_SIGMA] = sig;                                 // QAQC:
++        qc[qaqc::QC_DQ1] = dq1;                                   // QAQC:
++        qc[qaqc::QC_DQ2] = dq2;                                   // QAQC:
++        qc[qaqc::QC_DQ3] = dq3;                                   // QAQC:
++        qc[qaqc::QC_DQ4] = dq4;                                   // QAQC:
++        qc[qaqc::QC_DQ5] = dq5;                                   // QAQC:
++        qc[qaqc::QC_DQ6] = dq6;                                   // QAQC:
++        qc[qaqc::QC_DQ1FM] = 0.0;                                 // QAQC:
++        qc[qaqc::QC_QMOM] = q;                                    // QAQC:
++        qc[qaqc::QC_QOLD] = qOld;                                 // QAQC:
++        qc[qaqc::QC_QLAST] = qLast;                               // QAQC:
++        qc[qaqc::QC_DQDH] = dqdh_[uj];                            // QAQC:
++        qc[qaqc::QC_FROUDE] = froude_[uj];                        // QAQC:
++        qc[qaqc::QC_SERIAL] = ctx.qaqc.serial;                    // QAQC:
++    }                                                             // QAQC:
+     {
+         static FILE* lf = nullptr;
+         static long lf_target = -2;
+@@ -3511,6 +3588,8 @@ void DWSolver::processForceMainLink(SimulationContext& ctx, double dt, int step,
+     // traced force main is not silent.
+     traceLinkTerms(ctx, uj, qLast, v, 0.0, 1.0, aWtd, rWtd, dq1, dq2, 0.0, 0.0, dq5, dq6, qOld, q,
+                    aMidConv);
++    if (double* qc = ctx.qaqc.linkSlot(uj))                       // QAQC:
++        qc[qaqc::QC_DQ1FM] = dq1;                                 // QAQC:
+ 
+     // Shared post-processing
+     applyFlowLimits(ctx, dt, step, uj, q, qLast, barrels_d, isFull);
+@@ -4571,6 +4650,28 @@ void DWSolver::setNodeDepth(SimulationContext& ctx, int node_idx, double dt, int
+         }
+     }
+ 
++    if (double* qn = ctx.qaqc.nodeSlot(ui)) {                     // QAQC:
++        double qd = surf_area / dt;                               // QAQC:
++        if (node_continuity == NodeContinuity::SEMI_IMPLICIT)     // QAQC:
++            qd = (surf_area + 0.5 * dt * xnode_.sumdqdh[ui]) / dt; // QAQC:
++        else if (use_surcharge_dqdh &&                            // QAQC:
++                 !(is_storage && xnode_.sumdqdh[ui] == 0.0)) {    // QAQC:
++            qd = xnode_.sumdqdh[ui];                              // QAQC:
++            if (y_last < 1.25 * yCrown && yCrown > 0.0)           // QAQC:
++                qd += (xnode_.old_surf_area[ui] / dt - xnode_.sumdqdh[ui]) * // QAQC:
++                      std::exp(-15.0 * (y_last - yCrown) / yCrown); // QAQC:
++        }                                                         // QAQC:
++        qn[qaqc::QN_AREA] = surf_area;                            // QAQC:
++        qn[qaqc::QN_OLDAREA] = xnode_.old_surf_area[ui];          // QAQC:
++        qn[qaqc::QN_DENOM] = qd;                                  // QAQC:
++        qn[qaqc::QN_F] = dQ;                                      // QAQC:
++        qn[qaqc::QN_CORR] = y_new - y_last;                       // QAQC:
++        qn[qaqc::QN_YCROWN] = yCrown;                             // QAQC:
++        qn[qaqc::QN_DYDT] = std::fabs(y_new - y_old) / dt;        // QAQC:
++        qn[qaqc::QN_SURCHARGED] = is_surcharged ? 1.0 : 0.0;      // QAQC:
++        qn[qaqc::QN_SERIAL] = ctx.qaqc.serial;                    // QAQC:
++    }                                                             // QAQC:
++
+     // A3 parity term tracing for one node (SWMM_TRACE_NODE=<index>, first 64
+     // invocations; format-matched to the legacy trace in dynwave.c).
+     {
+diff --git a/src/engine/plugins/DefaultOutputPlugin.cpp b/src/engine/plugins/DefaultOutputPlugin.cpp
+index c365eeb..a2e767b 100644
+--- a/src/engine/plugins/DefaultOutputPlugin.cpp
++++ b/src/engine/plugins/DefaultOutputPlugin.cpp
+@@ -1,3 +1,5 @@
++// Modified 2026-11-19 by Robert Dickinson (swmm6-qaqc): solver QA/QC output
++// variables. Every changed or added line is tagged  QAQC:
+ // SPDX-License-Identifier: Apache-2.0
+ //
+ // Copyright 2026 Caleb Buahin
+@@ -45,6 +47,7 @@
+ #include "../../../include/openswmm/plugin_sdk/SimulationSnapshot.hpp"
+ #include "../core/SimulationContext.hpp"
+ #include "../core/UnitConversion.hpp"
++#include "../core/Qaqc.hpp" // QAQC:
+ 
+ #include <cctype>
+ #include <cstring>
+@@ -250,6 +253,12 @@ int DefaultOutputPlugin::update(const SimulationSnapshot& snapshot) {
+             writeReal4(static_cast<float>(
+                 qi < snapshot.node_quality.size() ? snapshot.node_quality[qi] : 0.0));
+         }
++        for (int v = 0; v < n_qaqc_node_; ++v) {                               // QAQC:
++            auto qi = uj * static_cast<std::size_t>(n_qaqc_node_) +             // QAQC:
++                      static_cast<std::size_t>(v);                             // QAQC:
++            writeReal4(qi < snapshot.qaqc_node.size() ? snapshot.qaqc_node[qi] // QAQC:
++                                                      : 0.0f);                 // QAQC:
++        }                                                                      // QAQC:
+     }
+ 
+     // -----------------------------------------------------------------------
+@@ -280,6 +289,12 @@ int DefaultOutputPlugin::update(const SimulationSnapshot& snapshot) {
+             writeReal4(static_cast<float>(
+                 qi < snapshot.link_quality.size() ? snapshot.link_quality[qi] : 0.0));
+         }
++        for (int v = 0; v < n_qaqc_link_; ++v) {                               // QAQC:
++            auto qi = uj * static_cast<std::size_t>(n_qaqc_link_) +             // QAQC:
++                      static_cast<std::size_t>(v);                             // QAQC:
++            writeReal4(qi < snapshot.qaqc_link.size() ? snapshot.qaqc_link[qi] // QAQC:
++                                                      : 0.0f);                 // QAQC:
++        }                                                                      // QAQC:
+     }
+ 
+     // -----------------------------------------------------------------------
+@@ -304,6 +319,9 @@ int DefaultOutputPlugin::update(const SimulationSnapshot& snapshot) {
+     sys[14] = static_cast<float>(snapshot.sys_pet);        // SYS_PET
+ 
+     std::fwrite(sys, sizeof(float), MAX_SYS_RESULTS, out_file_);
++    for (int v = 0; v < n_qaqc_sys_; ++v)                                      // QAQC:
++        writeReal4(static_cast<std::size_t>(v) < snapshot.qaqc_sys.size()      // QAQC:
++                       ? snapshot.qaqc_sys[static_cast<std::size_t>(v)] : 0.0f); // QAQC:
+ 
+     // Push the completed period to disk so a live reader (OutputReader::
+     // openLive / swmm_output_open_live) can count it from the file size.
+@@ -376,6 +394,11 @@ void DefaultOutputPlugin::writeHeader(const SimulationContext& ctx) {
+                                        : 0); // rainfall..soilmoist + pollutants + extensions
+     n_node_vars_ = 6 + n_polluts_;          // depth..overflow + pollutants
+     n_link_vars_ = 5 + n_polluts_;          // flow..capacity + pollutants
++    n_qaqc_node_ = ctx.qaqc.enabled ? qaqc::nodeCount() : 0; // QAQC:
++    n_qaqc_link_ = ctx.qaqc.enabled ? qaqc::linkCount() : 0; // QAQC:
++    n_qaqc_sys_ = ctx.qaqc.enabled ? qaqc::sysCount() : 0;   // QAQC:
++    n_node_vars_ += n_qaqc_node_;                            // QAQC:
++    n_link_vars_ += n_qaqc_link_;                            // QAQC:
+ 
+     // Magic, version, flow units, counts
+     writeInt4(MAGIC_NUMBER);
+@@ -520,16 +543,22 @@ void DefaultOutputPlugin::writeHeader(const SimulationContext& ctx) {
+             writeInt4(SWMM_OUT_SUBCATCH_FROZEN_FRACTION + v);
+ 
+     writeInt4(n_node_vars_);
+-    for (int v = 0; v < n_node_vars_; ++v)
++    for (int v = 0; v < n_node_vars_ - n_qaqc_node_; ++v) // QAQC: standard codes
+         writeInt4(v);
++    for (int v = 0; v < n_qaqc_node_; ++v)                // QAQC:
++        writeInt4(qaqc::CODE_BASE + v);                   // QAQC:
+ 
+     writeInt4(n_link_vars_);
+-    for (int v = 0; v < n_link_vars_; ++v)
++    for (int v = 0; v < n_link_vars_ - n_qaqc_link_; ++v) // QAQC: standard codes
+         writeInt4(v);
++    for (int v = 0; v < n_qaqc_link_; ++v)                // QAQC:
++        writeInt4(qaqc::CODE_BASE + v);                   // QAQC:
+ 
+-    writeInt4(MAX_SYS_RESULTS);
++    writeInt4(MAX_SYS_RESULTS + n_qaqc_sys_);             // QAQC:
+     for (int v = 0; v < MAX_SYS_RESULTS; ++v)
+         writeInt4(v);
++    for (int v = 0; v < n_qaqc_sys_; ++v)                 // QAQC:
++        writeInt4(qaqc::CODE_BASE + v);                   // QAQC:
+ 
+     // Report start date and step
+     writeReal8(ctx.options.start_date);
+diff --git a/src/engine/plugins/DefaultOutputPlugin.hpp b/src/engine/plugins/DefaultOutputPlugin.hpp
+index 4733d03..41766fa 100644
+--- a/src/engine/plugins/DefaultOutputPlugin.hpp
++++ b/src/engine/plugins/DefaultOutputPlugin.hpp
+@@ -1,3 +1,5 @@
++// Modified 2026-11-19 by Robert Dickinson (swmm6-qaqc): solver QA/QC output
++// variables. Every changed or added line is tagged  QAQC:
+ // SPDX-License-Identifier: Apache-2.0
+ //
+ // Copyright 2026 Caleb Buahin
+@@ -233,6 +235,9 @@ private:
+     bool frozen_ground_ = false; ///< the file carries the frozen-ground extension columns
+     int n_node_vars_ = 0;
+     int n_link_vars_ = 0;
++    int n_qaqc_node_ = 0; // QAQC: QA/QC variables appended to each node record
++    int n_qaqc_link_ = 0; // QAQC: ... to each link record
++    int n_qaqc_sys_ = 0;  // QAQC: ... to the system record
+     int flow_units_code_ = 0;
+     long id_start_pos_ = 0;
+     long input_start_pos_ = 0;

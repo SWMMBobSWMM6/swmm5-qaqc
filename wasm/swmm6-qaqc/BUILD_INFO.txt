@@ -1,0 +1,34 @@
+swmm6-qaqc WebAssembly engine
+=============================
+Built            2026-11-19
+Source           OpenSWMM Engine 6.0.0-alpha.4
+                 https://github.com/HydroCouple/openswmm.engine
+                 branch swmm6_rel, commit da2b248937c85b6caf453044c4bc98b3f1de41c1
+                 + engine/swmm6/swmm6-qaqc.patch (7 files changed)
+                 + engine/swmm6/core/ (4 files added)
+Build command    scripts/build_swmm6.sh <workdir> wasm
+                 -fexceptions; GEOPACKAGE, HDF5, 2D and GPU plugin OFF;
+                 single-threaded (no OpenMP, no pthreads)
+Emscripten       3.1.51-git (c0c2ca1314672a25699846b4663701bcb6f69cca)
+                 with Ubuntu clang 18.1.3 as LLVM and Binaryen version_116.
+                 This is not the emsdk pairing for 3.1.51; a build with emsdk
+                 will very likely give a different .wasm hash.
+Factory          createSwmm6QaqcModule   (MODULARIZE, ENVIRONMENT=web,worker,
+                 INVOKE_RUN=0)
+Use              mod.callMain(['model.inp','model.rpt','model.out'])
+                 mod.callMain(['--stock','model.inp','model.rpt','model.out'])
+                 mod.callMain(['--catalog','qaqc_variables.json'])
+Runtime methods  FS callMain ccall cwrap getValue UTF8ToString stringToUTF8
+
+swmm6-qaqc.wasm  4,809,433 bytes
+  sha256 3766ad155109d6f3dfdd48d869be68b5ee6b295a870ef3385f59f2a4ae38cdb8
+swmm6-qaqc.js    99,584 bytes
+  sha256 b8703f8046f496c01d6457061bbe96bb1891fdb909c325c9b46fe5836251f79e
+
+OpenSWMM Engine, Copyright 2026 HydroCouple Developers, licensed under the
+Apache License, Version 2.0. See NOTICE and licenses/Apache-2.0-OpenSWMM.txt at
+the root of this repository. Engine sources were modified; the changed files
+carry modification notices. Portions derive from USEPA SWMM (public domain,
+17 USC 105). The USEPA does not endorse this product. This is not a release of
+OpenSWMM Engine or of HydroCouple.
+Built by Claude (Anthropic) for Robert Dickinson. See the README, "AI use".

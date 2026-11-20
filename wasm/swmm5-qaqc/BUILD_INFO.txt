@@ -1,0 +1,27 @@
+swmm5-qaqc WebAssembly engine
+=============================
+Built            2026-11-19
+Source           engine/swmm5/src in this repository
+                 = EPA SWMM 5.2.4 (USEPA/Stormwater-Management-Model, tag v5.2.4,
+                   commit 7952ca837988b1c32f791812eccc9fd64547e093)
+                 + engine/swmm5/patches/swmm5-qaqc-5.2.4.patch
+Build command    scripts/build_wasm_swmm5.sh   (emcc -O2, single-threaded, no SINGLE_FILE)
+Emscripten       3.1.51-git (c0c2ca1314672a25699846b4663701bcb6f69cca)
+                 with Ubuntu clang 18.1.3 as LLVM and Binaryen version_116.
+                 This is not the emsdk pairing for 3.1.51; a build with emsdk
+                 will very likely give a different .wasm hash.
+Factory          createSwmm5QaqcModule   (MODULARIZE, ENVIRONMENT=web,worker)
+Exports          swmm_run swmm_open swmm_start swmm_step swmm_end swmm_report
+                 swmm_close swmm_getError swmm_getWarnings swmm_getVersion
+                 swmm_getMassBalErr swmm_setQaqc swmm_getQaqcCount
+                 swmm_writeQaqcCatalog malloc free
+Runtime methods  FS ccall cwrap getValue UTF8ToString stringToUTF8
+
+swmm5-qaqc.wasm  476,111 bytes
+  sha256 9fcbfd0f29e44c99e7afc36f1b197134dba43107bac38e18493daee08940870d
+swmm5-qaqc.js    69,568 bytes
+  sha256 1e561f77fcbf78cc9e07512637fab5bf542df6fc0fd3de8356368c108c286748
+
+EPA SWMM is a work of the U.S. Environmental Protection Agency and is in the
+public domain. The USEPA does not endorse this product.
+Built by Claude (Anthropic) for Robert Dickinson. See the README, "AI use".

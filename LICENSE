@@ -1,0 +1,35 @@
+MIT License
+
+Copyright (c) 2026 Robert Dickinson
+
+This license covers the files written for this repository: the QA/QC additions
+to the SWMM5 solver (qaqc.c, qaqc.h and the lines tagged QAQC:), the tools,
+tests, scripts and documents.
+
+It does NOT cover:
+
+- EPA SWMM 5.2.4 (engine/swmm5/src, apart from the QA/QC additions), which is a
+  work of the U.S. Environmental Protection Agency and is in the public domain.
+- OpenSWMM Engine, on which the SWMM6 version is built. OpenSWMM Engine is
+  Copyright 2026 HydroCouple Developers and licensed under the Apache License,
+  Version 2.0. The files in engine/swmm6 that modify or extend it, and the
+  compiled engine in wasm/swmm6-qaqc, are distributed under the Apache License,
+  Version 2.0. See NOTICE and licenses/Apache-2.0-OpenSWMM.txt.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
